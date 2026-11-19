@@ -28,6 +28,10 @@ export async function connectDatabase(): Promise<Db> {
   await mongoClient.connect();
   await db.command({ ping: 1 });
 
+await db
+  .collection("restaurants")
+  .createIndex({ ownerId: 1 }, { unique: true });
+
   console.log("✅ MongoDB connected successfully!");
 
   return db;
