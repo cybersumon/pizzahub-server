@@ -1,21 +1,13 @@
-// ============================================
-// PIZZAHUB BACKEND SERVER
-// Express + Better Auth + MongoDB
-// ============================================
-
-// .env environment variables load করছি।
+// Admin-only Restaurant Approval API।
+import adminRoutes from "./routes/admin.routes.js";
 import "dotenv/config";
 
 // Express framework।
 import express from "express";
-
-// Frontend থেকে cross-origin requests allow করবে।
 import cors from "cors";
 
 // HTTP security headers।
 import helmet from "helmet";
-
-// Better Auth-এর Express integration।
 import { toNodeHandler } from "better-auth/node";
 
 // Better Auth configuration।
@@ -24,7 +16,7 @@ import { auth } from "./lib/auth.js";
 // Restaurant registration API।
 import restaurantRoutes from "./routes/restaurant.routes.js";
 
-// Express application তৈরি।
+// creat Express application
 const app = express();
 
 // Backend port (default 7000)।
@@ -38,20 +30,12 @@ const CLIENT_URL =
 // 1. SECURITY MIDDLEWARE
 // ============================================
 
-// HTTP security headers set করবে।
+// HTTP security headers set 
 app.use(helmet());
-
-// ============================================
-// 2. CORS MIDDLEWARE
-// IMPORTANT: Better Auth-এর আগে থাকতে হবে।
-// ============================================
 
 app.use(
   cors({
-    // শুধু আমাদের Next.js frontend allow করছি।
     origin: CLIENT_URL,
-
-    // Authentication cookies support।
     credentials: true,
 
     // Allowed HTTP methods।
@@ -64,7 +48,6 @@ app.use(
       "OPTIONS",
     ],
 
-    // JSON এবং authentication headers।
     allowedHeaders: [
       "Content-Type",
       "Authorization",
@@ -72,20 +55,12 @@ app.use(
   })
 );
 
-// ============================================
-// 3. BETTER AUTH ROUTES
-// ============================================
 
-// Better Auth-এর sign-in/sign-up/session APIs।
-// Express 5 wildcard syntax ব্যবহার করছি।
+// 3. BETTER AUTH ROUTES
 app.all("/api/auth/*splat", toNodeHandler(auth));
 
-// ============================================
-// 4. JSON BODY PARSER
-// ============================================
 
-// Better Auth handler-এর পরে JSON parser।
-// IMPORTANT: শুধু একবার ব্যবহার করছি।
+// 4. JSON BODY PARSER
 app.use(express.json());
 
 // ============================================
@@ -94,6 +69,8 @@ app.use(express.json());
 
 // Authenticated restaurant onboarding endpoints।
 app.use("/api/restaurants", restaurantRoutes);
+// Admin-only endpoints।
+app.use("/api/admin", adminRoutes);
 
 // ============================================
 // 6. BACKEND HEALTH CHECK
@@ -110,7 +87,6 @@ app.get("/api/health", (_req, res) => {
 // 7. START EXPRESS SERVER
 // ============================================
 
-// Backend server চালু।
 app.listen(PORT, () => {
   console.log(`PizzaHub API running on port ${PORT}`);
   console.log(`Allowed frontend origin: ${CLIENT_URL}`);
