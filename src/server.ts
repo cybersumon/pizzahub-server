@@ -1,4 +1,5 @@
 // Admin-only Restaurant Approval API।
+import userRoutes from "./routes/user.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
 import "dotenv/config";
 
@@ -71,6 +72,7 @@ app.use(express.json());
 app.use("/api/restaurants", restaurantRoutes);
 // Admin-only endpoints।
 app.use("/api/admin", adminRoutes);
+app.use("/api/users", userRoutes);
 
 // ============================================
 // 6. BACKEND HEALTH CHECK
