@@ -1,7 +1,10 @@
-// Admin-only Restaurant Approval API।
 import userRoutes from "./routes/user.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
 import "dotenv/config";
+import uploadRoutes from "./routes/upload.routes.js";
+
+// Vendor Menu CRUD API।
+import menuRoutes from "./routes/menu.routes.js";
 
 // Express framework।
 import express from "express";
@@ -28,12 +31,11 @@ const CLIENT_URL =
   process.env.CLIENT_URL || "http://localhost:3000";
 
 // ============================================
-// 1. SECURITY MIDDLEWARE
+// SECURITY MIDDLEWARE
 // ============================================
 
 // HTTP security headers set 
 app.use(helmet());
-
 app.use(
   cors({
     origin: CLIENT_URL,
@@ -56,16 +58,14 @@ app.use(
   })
 );
 
-
-// 3. BETTER AUTH ROUTES
+// BETTER AUTH ROUTES
 app.all("/api/auth/*splat", toNodeHandler(auth));
 
-
-// 4. JSON BODY PARSER
+// JSON BODY PARSER
 app.use(express.json());
 
 // ============================================
-// 5. RESTAURANT API ROUTES
+// RESTAURANT API ROUTES
 // ============================================
 
 // Authenticated restaurant onboarding endpoints।
@@ -73,9 +73,11 @@ app.use("/api/restaurants", restaurantRoutes);
 // Admin-only endpoints।
 app.use("/api/admin", adminRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/menu", menuRoutes);
+app.use("/api/upload", uploadRoutes);
 
 // ============================================
-// 6. BACKEND HEALTH CHECK
+// BACKEND HEALTH CHECK
 // ============================================
 
 app.get("/api/health", (_req, res) => {
@@ -86,7 +88,7 @@ app.get("/api/health", (_req, res) => {
 });
 
 // ============================================
-// 7. START EXPRESS SERVER
+// START EXPRESS SERVER
 // ============================================
 
 app.listen(PORT, () => {

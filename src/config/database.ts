@@ -34,5 +34,10 @@ await db
 
   console.log("✅ MongoDB connected successfully!");
 
+await db.collection("menuItems").createIndex({
+  restaurantId: 1,
+  isActive: 1,
+});
+
   return db;
 }

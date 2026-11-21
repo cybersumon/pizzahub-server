@@ -1,4 +1,3 @@
-// Express routing এবং request/response types।
 import {
   Router,
   type Request,
@@ -31,7 +30,6 @@ async function requireAdmin(
   next: NextFunction
 ) {
   try {
-    // Browser cookie থেকে authenticated session যাচাই।
     const session = await auth.api.getSession({
       headers: fromNodeHeaders(req.headers),
     });
@@ -45,14 +43,13 @@ async function requireAdmin(
       return;
     }
 
-    // Server environment থেকে trusted Admin IDs পড়ছি।
+    //  trusted Admin IDs from Server environment
     const adminIds = (process.env.ADMIN_USER_IDS ?? "")
       .split(",")
       .map((id) => id.trim())
       .filter(Boolean);
 
     // Server-side ID allowlist check।
-    // Client কোনো role পাঠিয়ে Admin হতে পারবে না।
     if (!adminIds.includes(session.user.id)) {
       res.status(403).json({
         success: false,
