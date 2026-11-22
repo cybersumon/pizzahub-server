@@ -5,6 +5,7 @@ import { fromNodeHeaders } from "better-auth/node";
 
 import { auth } from "../lib/auth.js";
 import { db, mongoClient } from "../config/database.js";
+import { getEffectivePlan, canAccessFeature } from "../utils/plan-access.js";
 
 const router = Router();
 
@@ -75,7 +76,6 @@ class ApiError extends Error {
 async function getOwnerId(
   headers: Parameters<typeof fromNodeHeaders>[0]
 ) {
-  // Better Auth session দিয়ে user verify।
   const session = await auth.api.getSession({
     headers: fromNodeHeaders(headers),
   });
@@ -178,8 +178,6 @@ function validateMenu(body: unknown) {
     );
   }
 
-  // Client-এর approvalStatus গ্রহণ করছি না।
-  // শুধু Admin API approval পরিবর্তন করতে পারবে।
   return {
     name: name.trim(),
     description: description.trim(),
@@ -196,19 +194,19 @@ function validateMenu(body: unknown) {
 
 async function checkMenuLimit(
   restaurantId: ObjectId,
-  plan: unknown,
+  restaurant: {
+    plan?: unknown;
+    stripeSubscriptionId?: unknown;
+    stripeSubscriptionStatus?: unknown;
+  },
   session: ClientSession,
   excludedId?: ObjectId
 ) {
-  // Premium এবং Premium+ unlimited।
-  if (
-    plan === "premium" ||
-    plan === "premium_plus"
-  ) {
+  // Unlimited menu requires a verified active subscription.
+  if (canAccessFeature(getEffectivePlan(restaurant), "unlimited_menu")) {
     return;
   }
 
-  // Free plan: সর্বোচ্চ ৩টি active item।
   const activeCount = await menus.countDocuments(
     {
       restaurantId,
@@ -296,7 +294,10 @@ router.get("/public", async (_req, res) => {
       .limit(100)
       .toArray();
 
-    // Existing frontend card-এর data format।
+    // Limit visible free-plan items after a subscription ends.
+    const freeVisibleCounts = new Map<string, number>();
+
+    // Preserve the existing frontend data format.
     const data = items.flatMap((item) => {
       const restaurant = restaurantMap.get(
         item.restaurantId.toString()
@@ -306,11 +307,14 @@ router.get("/public", async (_req, res) => {
         return [];
       }
 
-      const plan =
-        restaurant.plan === "premium" ||
-        restaurant.plan === "premium_plus"
-          ? restaurant.plan
-          : "free";
+      const plan = getEffectivePlan(restaurant);
+      const restaurantKey = restaurant._id.toString();
+
+      if (plan === "free") {
+        const visibleCount = freeVisibleCounts.get(restaurantKey) ?? 0;
+        if (visibleCount >= 3) return [];
+        freeVisibleCounts.set(restaurantKey, visibleCount + 1);
+      }
 
       return [
         {
@@ -365,7 +369,6 @@ router.get("/my", async (req, res) => {
       ownerId
     );
 
-    // Vendor শুধুমাত্র নিজের menu দেখবে।
     const items = await menus
       .find({
         restaurantId: restaurant._id,
@@ -376,7 +379,7 @@ router.get("/my", async (req, res) => {
 
     res.json({
       success: true,
-      plan: restaurant.plan,
+      plan: getEffectivePlan(restaurant),
       data: items,
     });
   } catch (error) {
@@ -417,7 +420,7 @@ router.post("/", async (req, res) => {
           if (data.isActive) {
             await checkMenuLimit(
               restaurant._id,
-              restaurant.plan,
+              restaurant,
               session
             );
           }
@@ -520,7 +523,7 @@ router.patch("/:id", async (req, res) => {
           if (data.isActive) {
             await checkMenuLimit(
               restaurant._id,
-              restaurant.plan,
+              restaurant,
               session,
               menuId
             );
@@ -530,8 +533,6 @@ router.patch("/:id", async (req, res) => {
           // LESSON 18: EDIT = PENDING
           // =================================
 
-          // Edit করার পরে Admin-এর
-          // নতুন approval প্রয়োজন।
           await menus.updateOne(
             filter,
             {
@@ -587,7 +588,6 @@ router.delete("/:id", async (req, res) => {
       );
     }
 
-    // Vendor শুধু নিজের item delete করবে।
     const result = await menus.deleteOne({
       _id: new ObjectId(id),
       restaurantId: restaurant._id,
