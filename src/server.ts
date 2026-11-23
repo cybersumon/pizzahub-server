@@ -1,7 +1,12 @@
+import adminSubscriptionRoutes from "./routes/admin-subscription.routes.js";
+import subscriptionRoutes from "./routes/subscription.routes.js";
+import { stripeWebhook } from "./controllers/stripe.controller.js";
 import userRoutes from "./routes/user.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
 import "dotenv/config";
 import uploadRoutes from "./routes/upload.routes.js";
+import orderRoutes from "./routes/order.routes.js";
+import profileRoutes from "./routes/profile.routes.js";
 
 // Vendor Menu CRUD API।
 import menuRoutes from "./routes/menu.routes.js";
@@ -61,6 +66,12 @@ app.use(
 // BETTER AUTH ROUTES
 app.all("/api/auth/*splat", toNodeHandler(auth));
 
+app.post(
+  "/api/stripe/webhook",
+  express.raw({ type: "application/json" }),
+  stripeWebhook
+);
+
 // JSON BODY PARSER
 app.use(express.json());
 
@@ -75,6 +86,13 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/menu", menuRoutes);
 app.use("/api/upload", uploadRoutes);
+app.use("/api/orders", orderRoutes);
+app.use("/api/profile", profileRoutes);
+app.use("/api/subscriptions", subscriptionRoutes);
+app.use(
+  "/api/admin/subscriptions",
+  adminSubscriptionRoutes
+);
 
 // ============================================
 // BACKEND HEALTH CHECK

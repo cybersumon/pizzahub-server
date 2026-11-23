@@ -28,6 +28,15 @@ function getPriceId(plan: PaidPlan): string {
   return priceId;
 }
 
+function asIsoDate(value: unknown): string | null {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString();
+  if (typeof value === "string") {
+    const timestamp = Date.parse(value);
+    return Number.isNaN(timestamp) ? null : new Date(timestamp).toISOString();
+  }
+  return null;
+}
+
 // GET /api/subscriptions/my
 router.get("/my", requireActiveUser, async (req: Request, res: Response) => {
   try {
@@ -59,6 +68,10 @@ router.get("/my", requireActiveUser, async (req: Request, res: Response) => {
         stripeSubscriptionId: subscriptionId,
         stripeCustomerId: typeof restaurant.stripeCustomerId === "string"
           ? restaurant.stripeCustomerId : null,
+        cancelAtPeriodEnd: restaurant.stripeCancelAtPeriodEnd === true,
+        currentPeriodEnd: asIsoDate(restaurant.stripeCurrentPeriodEnd),
+        cancelAt: asIsoDate(restaurant.stripeCancelAt),
+        accessEndsAt: asIsoDate(restaurant.stripeAccessEndsAt),
         features: {
           unlimitedMenu: canAccessFeature(plan, "unlimited_menu"),
           premiumDetails: canAccessFeature(plan, "premium_details"),
@@ -129,7 +142,6 @@ router.post("/checkout", requireActiveUser,
 );
 
 // POST /api/subscriptions/portal
-// Create a short-lived, authenticated portal session for the restaurant owner.
 router.post("/portal", requireActiveUser, async (req: Request, res: Response) => {
   try {
     const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });

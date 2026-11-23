@@ -44,48 +44,49 @@ type MenuFilterStatus =
 // ADMIN AUTHORIZATION MIDDLEWARE
 // ============================================
 
+function getProtectedAdminIds(): Set<string> {
+  return new Set(
+    (process.env.ADMIN_USER_IDS ?? "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean)
+  );
+}
+
 async function requireAdmin(
   req: Request,
   res: Response,
   next: NextFunction
 ) {
   try {
-    // Better Auth দিয়ে logged-in user যাচাই।
     const session = await auth.api.getSession({
       headers: fromNodeHeaders(req.headers),
     });
 
-    if (!session?.user?.id) {
-      res.status(401).json({
-        success: false,
-        message: "Authentication required.",
-      });
+    if (!session?.user?.id || !ObjectId.isValid(session.user.id)) {
+      res.status(401).json({ success: false, message: "Authentication required." });
       return;
     }
 
-    // Backend .env থেকে Admin IDs।
-    const adminIds = (process.env.ADMIN_USER_IDS ?? "")
-      .split(",")
-      .map((id) => id.trim())
-      .filter(Boolean);
+    const user = await usersCollection.findOne({
+      _id: new ObjectId(session.user.id),
+    });
 
-    // শুধু authorized Admin access পাবে।
-    if (!adminIds.includes(session.user.id)) {
-      res.status(403).json({
-        success: false,
-        message: "Admin access required.",
-      });
+    if (!user || user.isBlocked === true) {
+      res.status(403).json({ success: false, message: "Account is unavailable." });
+      return;
+    }
+
+    const isAdmin = getProtectedAdminIds().has(session.user.id) || user.role === "admin";
+    if (!isAdmin) {
+      res.status(403).json({ success: false, message: "Admin access required." });
       return;
     }
 
     next();
   } catch (error) {
     console.error("Admin verification failed:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Unable to verify admin.",
-    });
+    res.status(500).json({ success: false, message: "Unable to verify admin." });
   }
 }
 
@@ -268,6 +269,7 @@ router.get("/users", async (_req, res) => {
             emailVerified: 1,
             createdAt: 1,
             isBlocked: 1,
+            role: 1,
           },
         }
       )
@@ -308,19 +310,17 @@ router.get("/users", async (_req, res) => {
         .filter(Boolean)
     );
 
-    // User-এর role নির্ধারণ।
+    // Explicit roles override inferred roles; protected admins are immutable.
     const data = users.map((user) => {
       const userId = user._id.toString();
-
-      const restaurant =
-        restaurantByOwner.get(userId);
-
-      // Priority: Admin > Vendor > Customer।
+      const restaurant = restaurantByOwner.get(userId);
       const role = adminIds.has(userId)
         ? "admin"
-        : restaurant
-          ? "vendor"
-          : "customer";
+        : user.role === "admin" || user.role === "vendor" || user.role === "customer"
+          ? user.role
+          : restaurant
+            ? "vendor"
+            : "customer";
 
       return {
         id: userId,
@@ -330,6 +330,7 @@ router.get("/users", async (_req, res) => {
         emailVerified: user.emailVerified,
         createdAt: user.createdAt,
         role,
+        isProtectedAdmin: adminIds.has(userId),
 
         isBlocked: user.isBlocked === true,
 
@@ -347,6 +348,9 @@ router.get("/users", async (_req, res) => {
     res.json({
       success: true,
       total: data.length,
+      canAssignAdmin: getProtectedAdminIds().has(
+        (await auth.api.getSession({ headers: fromNodeHeaders(_req.headers) }))?.user?.id ?? ""
+      ),
       data,
     });
   } catch (error) {
@@ -356,6 +360,99 @@ router.get("/users", async (_req, res) => {
       success: false,
       message: "Unable to load users.",
     });
+  }
+});
+
+// ============================================
+// UPDATE USER ROLE
+// PATCH /api/admin/users/:id/role
+// ============================================
+
+router.patch("/users/:id/role", async (req, res) => {
+  try {
+    const session = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
+    const actorId = session?.user?.id;
+    if (!actorId) {
+      res.status(401).json({ success: false, message: "Authentication required." });
+      return;
+    }
+
+    const targetId = req.params.id;
+    const requestedRole: unknown = req.body?.role;
+    if (typeof targetId !== "string" || !ObjectId.isValid(targetId)) {
+      res.status(400).json({ success: false, message: "Invalid user ID." });
+      return;
+    }
+    if (requestedRole !== "customer" && requestedRole !== "vendor" && requestedRole !== "admin") {
+      res.status(400).json({ success: false, message: "Invalid user role." });
+      return;
+    }
+
+    const protectedAdmins = getProtectedAdminIds();
+    const actorIsSuperAdmin = protectedAdmins.has(actorId);
+    if (actorId === targetId || protectedAdmins.has(targetId)) {
+      res.status(403).json({ success: false, message: "Protected or own account cannot be changed." });
+      return;
+    }
+
+    const target = await usersCollection.findOne({ _id: new ObjectId(targetId) });
+    if (!target) {
+      res.status(404).json({ success: false, message: "User not found." });
+      return;
+    }
+    if (target.isBlocked === true) {
+      res.status(409).json({ success: false, message: "Unblock the user before changing roles." });
+      return;
+    }
+
+    const currentRole = target.role === "admin" || target.role === "vendor" || target.role === "customer"
+      ? target.role
+      : (await restaurants.findOne({ ownerId: targetId }, { projection: { _id: 1 } }))
+        ? "vendor"
+        : "customer";
+
+    // Only the environment-protected super admin can grant/revoke admin privileges.
+    if ((requestedRole === "admin" || currentRole === "admin") && !actorIsSuperAdmin) {
+      res.status(403).json({ success: false, message: "Super admin permission required." });
+      return;
+    }
+
+    // Prevent hiding an existing restaurant under a customer role.
+    if (requestedRole === "customer") {
+      const ownedRestaurant = await restaurants.findOne(
+        { ownerId: targetId },
+        { projection: { _id: 1 } }
+      );
+      if (ownedRestaurant) {
+        res.status(409).json({
+          success: false,
+          message: "Transfer or close the owned restaurant before assigning Customer role.",
+        });
+        return;
+      }
+    }
+
+    if (requestedRole === currentRole) {
+      res.json({ success: true, message: "Role is already assigned.", data: { id: targetId, role: currentRole } });
+      return;
+    }
+
+    // Do not modify ownership, approval status or Stripe subscriptions.
+    await usersCollection.updateOne(
+      { _id: new ObjectId(targetId), isBlocked: { $ne: true } },
+      { $set: { role: requestedRole, updatedAt: new Date() } }
+    );
+
+    res.json({
+      success: true,
+      message: `User role updated to ${requestedRole}.`,
+      data: { id: targetId, role: requestedRole },
+    });
+  } catch (error) {
+    console.error("Update user role failed:", error);
+    res.status(500).json({ success: false, message: "Unable to update user role." });
   }
 });
 
@@ -946,8 +1043,6 @@ router.patch(
               approvalStatus: previousStatus,
             };
 
-      // Admin review করার মধ্যে Vendor item
-      // edit করলে পুরোনো version approve হবে না।
       const result =
         await menus.findOneAndUpdate(
           {

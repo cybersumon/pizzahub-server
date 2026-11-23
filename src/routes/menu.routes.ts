@@ -1,6 +1,10 @@
 import { requireActiveUser } from "../middleware/requireActiveUser.js";
 import { Router, type Response } from "express";
-import { ObjectId, type ClientSession } from "mongodb";
+import {
+  ObjectId,
+  type ClientSession,
+  type Document,
+} from "mongodb";
 import { fromNodeHeaders } from "better-auth/node";
 
 import { auth } from "../lib/auth.js";
@@ -194,11 +198,7 @@ function validateMenu(body: unknown) {
 
 async function checkMenuLimit(
   restaurantId: ObjectId,
-  restaurant: {
-    plan?: unknown;
-    stripeSubscriptionId?: unknown;
-    stripeSubscriptionStatus?: unknown;
-  },
+  restaurant: Document,
   session: ClientSession,
   excludedId?: ObjectId
 ) {
@@ -327,6 +327,10 @@ router.get("/public", async (_req, res) => {
 
           // Restaurant information।
           vendorName: restaurant.name,
+          restaurantLogo:
+            typeof restaurant.logo === "string"
+              ? restaurant.logo
+              : null,
           location: restaurant.address,
           phone: restaurant.phone ?? "",
 
